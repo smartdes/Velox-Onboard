@@ -3,7 +3,7 @@
 I built Velox-Onboard, an event-driven user lifecycle automation microservice. In SaaS platforms, drop-off rates during initial sign-up are critical. This system ensures that the moment a user registers, backend serverless functions instantly handle provisioning, incentive generation (like dynamic promo vouchers), and notification queuing asynchronously, ensuring a seamless Day-1 user experience.
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="Velox-Onboard Portal Preview" width="650" />
+  <img src="assets/screenshot.png" alt="Velox-Onboard Portal Preview" width="520" />
 </p>
 
 ---

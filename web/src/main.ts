@@ -37,13 +37,11 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       
       <!-- Centered Brand Logo & Tagline -->
       <div class="flex flex-col items-center text-center mb-6">
-        <div class="bg-slate-900 p-3 rounded-2xl shadow-md mb-3">
           <img 
           src="/velox-onboarding_logo.svg" 
           alt="Velox-Onboard Logo" 
           class="h-14 w-auto object-contain mx-auto mb-2"
         />
-        </div>
         <p class="text-xs font-medium text-slate-500">Streamlined Customer Onboarding</p>
       </div>
 
