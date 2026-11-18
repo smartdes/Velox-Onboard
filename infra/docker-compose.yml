@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  firebase-emulators:
+    image: andreysenov/firebase-tools:latest
+    container_name: velox_firebase_emulators
+    ports:
+      - "4000:4000" # Emulator UI
+      - "8080:8080" # Firestore
+      - "9099:9099" # Auth
+      - "5001:5001" # Functions
+    volumes:
+      - ../:/app
+    working_dir: /app
+    command: firebase emulators:start --project demo-velox-onboard --import=./emulator-data --export-on-exit
