@@ -95,3 +95,6 @@ npm run dev
 ```
 
 Open the displayed local URL (typically `http://localhost:5173`) in your browser to simulate user registration and observe real-time onboarding execution in your Firestore Emulator dashboard.
+
+## 👨‍💻 Author
+Built with precision by **Alexander Macharia**.
