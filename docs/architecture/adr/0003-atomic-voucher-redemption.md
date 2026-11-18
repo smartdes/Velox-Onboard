@@ -1,36 +1,19 @@
-# ADR 0003: Atomic voucher redemption
+# ADR 0003: Atomic Voucher Redemption via Firestore Transactions
 
-- **Status:** Proposed (implementation pending)
-- **Date:** 2026-11-18
+**Status:** Accepted  
+**Date:** 2026-11-18
 
 ## Context
+Single-use promotional vouchers (`vouchers/{code}`) are redeemed via an HTTP endpoint (`redeem_voucher`). Initially, the endpoint performed a sequential read (`doc.get()`), validated `redeemed == False`, and executed `doc.update({"redeemed": True})`. Under concurrent requests (e.g., rapid double-clicks or scripted bursts), multiple requests read `redeemed == False` before the first write committed, resulting in double redemptions.
 
-`redeem_voucher` currently reads the voucher, checks `redeemed`, and then updates it in separate calls. Two requests that arrive at the same moment can both read `redeemed = false`, both pass the check, and both succeed. A single-use voucher can then be redeemed twice.
-
-The function also never checks `expiresAt`, so expired vouchers can still be redeemed.
-
-## Options considered
-
-| Option | Pros | Cons |
-|---|---|---|
-| Keep read-then-write (current) | Simplest code | Race condition, allows double redemption |
-| Firestore transaction | Read, validate and write happen as one unit; Firestore retries on contention; no extra infrastructure | Slightly more code; per-document write rate limits apply |
-| Conditional update via a separate lock or queue | Serializes all redemptions | Extra infrastructure and complexity for a problem a transaction already solves |
+## Options Considered
+1. **Non-transactional read-check-write:** Simple and fast, but vulnerable to TOCTOU (Time-of-Check to Time-of-Use) race conditions.
+2. **Distributed lock (e.g., Redis):** Adds external infrastructure, operational cost, and network latency for a serverless Firebase stack.
+3. **Firestore `@firestore.transactional` (Optimistic Concurrency Control):** Native to Firestore, requires zero extra infrastructure, and automatically retries if the underlying document changes between read and write.
 
 ## Decision
-
-Use a Firestore transaction. Inside it:
-
-1. Read the voucher document.
-2. Reject if it does not exist, is already redeemed, or `expiresAt` has passed.
-3. Set `redeemed = true` and `redeemedAt`.
+Use `@firestore.transactional` in Python Cloud Functions to wrap the document read, expiry validation, and status update into a single atomic unit.
 
 ## Consequences
-
-- Concurrent redemptions of the same code: exactly one succeeds, the others get "already redeemed".
-- Expired vouchers are rejected with a clear error.
-- Each voucher is its own document, so redemptions of different vouchers do not contend with each other.
-
-## Verification plan
-
-Run a k6 test that fires many parallel requests at the same code against the emulator. Record how many succeed before the fix (expected: more than one) and after (expected: exactly one). Results go in `loadtests/results/`.
+* **Positive:** Guarantees at-most-once redemption under high concurrency; enforces server-side `expiresAt` validation cleanly.
+* **Negative:** Slightly higher tail latency under extreme contention on the same document due to automatic transaction retries (acceptable since single-use vouchers have low per-key contention in normal usage).
