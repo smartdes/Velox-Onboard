@@ -1,3 +1,4 @@
+import json
 import random
 import string
 from datetime import datetime, timedelta, timezone
@@ -70,44 +71,65 @@ def onboard_new_user(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | N
     print(f"Onboarded user {user_id} with voucher {voucher_code}")
 
 
+
+
 # ---------------------------------------------------------
-# NEW: Interactive Voucher Redemption Endpoint (Feature 4)
+# Voucher redemption (atomic, see ADR 0003)
 # ---------------------------------------------------------
+def _json(payload: dict, status: int) -> https_fn.Response:
+    return https_fn.Response(json.dumps(payload), status=status, mimetype="application/json")
+
+
+@firestore.transactional
+def _redeem_in_transaction(transaction, voucher_ref):
+    """Read, validate and write as one unit. Returns (outcome, voucher_data)."""
+    snapshot = voucher_ref.get(transaction=transaction)
+    if not snapshot.exists:
+        return "not_found", None
+
+    data = snapshot.to_dict() or {}
+    if data.get("redeemed"):
+        return "already_redeemed", None
+
+    expires_at = data.get("expiresAt")
+    if expires_at is not None and expires_at < datetime.now(timezone.utc):
+        return "expired", None
+
+    transaction.update(voucher_ref, {
+        "redeemed": True,
+        "redeemedAt": datetime.now(timezone.utc),
+    })
+    return "ok", data
+
+
 @https_fn.on_request(
     cors=options.CorsOptions(cors_origins="*", cors_methods=["POST", "OPTIONS"])
 )
 def redeem_voucher(req: https_fn.Request) -> https_fn.Response:
     if req.method == "OPTIONS":
         return https_fn.Response("", status=204)
-        
+
     if req.method != "POST":
-        return https_fn.Response("Method not allowed", status=405)
+        return _json({"error": "Method not allowed"}, 405)
 
     data = req.get_json(silent=True) or {}
-    code = data.get("code", "").strip().upper()
-
+    code = str(data.get("code", "")).strip().upper()
     if not code:
-        return https_fn.Response('{"error": "Voucher code is required."}', status=400, mimetype="application/json")
+        return _json({"error": "Voucher code is required."}, 400)
 
     db = firestore.client()
     voucher_ref = db.collection("vouchers").document(code)
-    voucher_doc = voucher_ref.get()
+    outcome, voucher = _redeem_in_transaction(db.transaction(), voucher_ref)
 
-    if not voucher_doc.exists:
-        return https_fn.Response('{"error": "Invalid voucher code."}', status=404, mimetype="application/json")
+    if outcome == "not_found":
+        return _json({"error": "Invalid voucher code."}, 404)
+    if outcome == "already_redeemed":
+        return _json({"error": "This voucher has already been redeemed!"}, 400)
+    if outcome == "expired":
+        return _json({"error": "This voucher has expired."}, 400)
 
-    voucher_data = voucher_doc.to_dict() or {}
-    if voucher_data.get("redeemed"):
-        return https_fn.Response('{"error": "This voucher has already been redeemed!"}', status=400, mimetype="application/json")
-
-    # Mark voucher as redeemed
-    voucher_ref.update({
-        "redeemed": True,
-        "redeemedAt": datetime.now(timezone.utc),
-    })
-
-    return https_fn.Response(
-        f'{{"success": true, "message": "Voucher {code} successfully redeemed!", "discountPercent": {voucher_data.get("discountPercent", 10)}}}',
-        status=200,
-        mimetype="application/json"
-    )
+    return _json({
+        "success": True,
+        "message": f"Voucher {code} successfully redeemed!",
+        "discountPercent": voucher.get("discountPercent", 10),
+    }, 200)
